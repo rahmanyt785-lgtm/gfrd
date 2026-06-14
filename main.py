@@ -504,28 +504,11 @@ def create_app():
                     t_pid = running_procs[folder].pid if folder in running_procs else old_pid
                     os.killpg(os.getpgid(t_pid), signal.SIGKILL)
                 except: pass
-            if folder in running_procs: del running_procs[folder]
-
             srv = db.execute('SELECT startup FROM servers WHERE folder=?', (folder,)).fetchone()
             startup_file = srv['startup'] if srv and srv['startup'] else 'main.py'
-            
             f_log = open(log_file_path, 'a')
-            
-            # requirements.txt check
-            req_path = os.path.join(path, 'requirements.txt')
-            if os.path.exists(req_path):
-                f_log.write(f"\n[{now}] 📦 Installing packages from requirements.txt...\n")
-                f_log.flush()
-                # Combined command: install then run
-                full_cmd = f"pip install -r requirements.txt && python3 {startup_file}"
-            else:
-                f_log.write(f"\n[{now}] 🚀 Instance {act.upper()}ED Successfully\n")
-                f_log.flush()
-                full_cmd = f"python3 {startup_file}"
-
-            # Start the process with shell=True for chaining commands
-            proc = subprocess.Popen(full_cmd, shell=True, cwd=path, stdout=f_log, stderr=f_log, preexec_fn=os.setsid)
-            
+            f_log.write(f"\n[{now}] 🚀 Instance {act.upper()}ED Successfully\n")
+            proc = subprocess.Popen(['python3', startup_file], cwd=path, stdout=f_log, stderr=f_log, preexec_fn=os.setsid)
             running_procs[folder], start_times[folder] = proc, time.time()
             db.execute('UPDATE servers SET pid=? WHERE folder=?', (proc.pid, folder))
             db.commit()
@@ -629,13 +612,5 @@ def create_app():
 
 app = create_app()
 
-if __name__ == '__main__':
-    # ডাটাবেজ ইনিশিয়ালের ফাংশন কল (যদি কোডে থাকে)
-    try:
-        init_db()
-    except Exception as e:
-        print("DB Init Error:", e)
-        
-    port = int(os.environ.get('PORT', 5000))
-    # SocketIO অথবা Flask অ্যাপ রান করা
-    socketio.run(app, host='0.0.0.0', port=port)
+if __name__ == "__main__":
+    socketio.run(app, host='0.0.0.0', port=5000, debug=True)
