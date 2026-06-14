@@ -84,9 +84,9 @@ def create_app():
     
     @app.route('/')
     def home():
-      return render_template('index.html')
+        return render_template('index.html')
 
-    # --- UPDATED SIGNUP ROUTE ---
+    # --- SIGNUP ROUTE ---
     @app.route('/signup', methods=['GET', 'POST'])
     def signup():
         if request.method == 'POST':
@@ -121,8 +121,9 @@ def create_app():
             db.close()
             return jsonify({'status': 'success', 'url': url_for('login')})
         
-        return render_template('web/signup.html')
+        return render_template('signup.html')
 
+    # --- LOGIN ROUTE (auth.html নাম আপডেট করা হয়েছে) ---
     @app.route('/login', methods=['GET', 'POST'])
     def login():
         if request.method == 'POST':
@@ -139,8 +140,9 @@ def create_app():
                 return jsonify({'status': 'success', 'url': url_for('dashboard')}), 200
             else:
                 return jsonify({'status': 'error', 'msg': 'Invalid credentials!'}), 401
-        return render_template('web/login.html')
+        return render_template('auth.html')  # login.html এর বদলে auth.html করা হয়েছে
 
+    # --- DASHBOARD ROUTE ---
     @app.route('/dashboard')
     def dashboard():
         if 'user_id' not in session: return redirect(url_for('login'))
@@ -150,7 +152,7 @@ def create_app():
         if not user or user['status'] != 'active':
             session.clear()
             return redirect(url_for('login'))
-        return render_template('web/dashboard.html', user=user)
+        return render_template('dashboard.html', user=user)
 
     @app.route('/profile/update', methods=['POST'])
     def update_profile():
@@ -185,6 +187,7 @@ def create_app():
         db.close()
         return jsonify(dict(conf))
 
+    # --- ADMIN LOGIN ROUTE ---
     @app.route('/admin-login', methods=['GET', 'POST'])
     def admin_login():
         if request.method == 'POST':
@@ -195,12 +198,13 @@ def create_app():
             if admin:
                 session['admin_logged'] = True
                 return redirect(url_for('admin_panel'))
-        return render_template('web/admin_login.html')
+        return render_template('admin_login.html')
 
+    # --- ADMIN PANEL ROUTE ---
     @app.route('/admin/panel')
     def admin_panel():
         if not session.get('admin_logged'): return redirect(url_for('admin_login'))
-        return render_template('web/admin_panel.html')
+        return render_template('admin_panel.html')
 
     @app.route('/admin/stats')
     def admin_stats():
@@ -286,7 +290,7 @@ def create_app():
             f = r['folder']
             online = (f in running_procs and running_procs[f].poll() is None) or (r['pid'] and psutil.pid_exists(r['pid']))
             servers.append({'id': r['id'], 'name': r['name'], 'folder': f, 'online': online, 'status': r['server_status']})
-        return render_template('web/admin_manage_user.html', user=user, servers=servers)
+        return render_template('admin_manage_user.html', user=user, servers=servers)
 
     @app.route('/admin/suspend-server/<int:sid>', methods=['POST'])
     def admin_suspend_server(sid):
@@ -346,7 +350,7 @@ def create_app():
     @app.route('/admin/files/<folder>')
     def admin_browse_files(folder):
         if not session.get('admin_logged'): return redirect(url_for('admin_login'))
-        return render_template('web/dashboard.html', user={'fname': 'Admin'}, is_admin_view=True, admin_folder=folder)
+        return render_template('dashboard.html', user={'fname': 'Admin'}, is_admin_view=True, admin_folder=folder)
 
     @app.route('/files/list/<folder>')
     def flist(folder):
@@ -608,6 +612,5 @@ def create_app():
 app = create_app()
 
 if __name__ == "__main__":
-    # Render-এর পরিবেশের সাথে খাপ খাইয়ে নেওয়ার জন্য ডাইনামিক পোর্ট বাইন্ডিং 
     port = int(os.environ.get("PORT", 5000))
     socketio.run(app, host='0.0.0.0', port=port)
