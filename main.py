@@ -612,13 +612,5 @@ def create_app():
 
 app = create_app()
 
-if __name__ == '__main__':
-    # ডাটাবেজ ইনিশিয়ালের ফাংশন কল (যদি কোডে থাকে)
-    try:
-        init_db()
-    except Exception as e:
-        print("DB Init Error:", e)
-        
-    port = int(os.environ.get('PORT', 5000))
-    # SocketIO অথবা Flask অ্যাপ রান করা
-    socketio.run(app, host='0.0.0.0', port=port)
+if __name__ == "__main__":
+    socketio.run(app, host='0.0.0.0', port=5000, debug=True)
