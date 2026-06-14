@@ -7,8 +7,8 @@ from flask_socketio import SocketIO, emit
 running_procs = {}
 start_times = {}
 
-# Initialize SocketIO without breaking on new python versions
-socketio = SocketIO(async_mode='threading')
+# Initialize SocketIO
+socketio = SocketIO()
 
 def get_db():
     db_path = os.path.join(os.getcwd(), 'storage/nehost.db')
@@ -84,9 +84,9 @@ def create_app():
     
     @app.route('/')
     def home():
-        return render_template('index.html')
+      return render_template('index.html')
 
-    # --- SIGNUP ROUTE ---
+    # --- UPDATED SIGNUP ROUTE ---
     @app.route('/signup', methods=['GET', 'POST'])
     def signup():
         if request.method == 'POST':
@@ -102,6 +102,7 @@ def create_app():
                 return jsonify({'status': 'error', 'msg': 'Passwords do not match!'}), 400
 
             db = get_db()
+            # Check if user already exists
             existing_user = db.execute('SELECT id FROM users WHERE email=? OR username=?', (email, username)).fetchone()
             if existing_user:
                 db.close()
@@ -112,6 +113,7 @@ def create_app():
                 pfp_name = secure_filename(pfp.filename)
                 pfp.save(os.path.join(app.config['UPLOAD_FOLDER'], pfp_name))
 
+            # Logic added: explicitly setting server_limit to 1 for new signups
             db.execute('''INSERT INTO users 
                 (fname, lname, username, email, password, pfp, server_limit, role, status) 
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)''',
@@ -121,9 +123,8 @@ def create_app():
             db.close()
             return jsonify({'status': 'success', 'url': url_for('login')})
         
-        return render_template('signup.html')
+        return render_template('web/signup.html')
 
-    # --- LOGIN ROUTE (auth.html নাম আপডেট করা হয়েছে) ---
     @app.route('/login', methods=['GET', 'POST'])
     def login():
         if request.method == 'POST':
@@ -140,9 +141,8 @@ def create_app():
                 return jsonify({'status': 'success', 'url': url_for('dashboard')}), 200
             else:
                 return jsonify({'status': 'error', 'msg': 'Invalid credentials!'}), 401
-        return render_template('auth.html')  # login.html এর বদলে auth.html করা হয়েছে
+        return render_template('web/login.html')
 
-    # --- DASHBOARD ROUTE ---
     @app.route('/dashboard')
     def dashboard():
         if 'user_id' not in session: return redirect(url_for('login'))
@@ -152,7 +152,7 @@ def create_app():
         if not user or user['status'] != 'active':
             session.clear()
             return redirect(url_for('login'))
-        return render_template('dashboard.html', user=user)
+        return render_template('web/dashboard.html', user=user)
 
     @app.route('/profile/update', methods=['POST'])
     def update_profile():
@@ -187,7 +187,6 @@ def create_app():
         db.close()
         return jsonify(dict(conf))
 
-    # --- ADMIN LOGIN ROUTE ---
     @app.route('/admin-login', methods=['GET', 'POST'])
     def admin_login():
         if request.method == 'POST':
@@ -198,13 +197,12 @@ def create_app():
             if admin:
                 session['admin_logged'] = True
                 return redirect(url_for('admin_panel'))
-        return render_template('admin_login.html')
+        return render_template('web/admin_login.html')
 
-    # --- ADMIN PANEL ROUTE ---
     @app.route('/admin/panel')
     def admin_panel():
         if not session.get('admin_logged'): return redirect(url_for('admin_login'))
-        return render_template('admin_panel.html')
+        return render_template('web/admin_panel.html')
 
     @app.route('/admin/stats')
     def admin_stats():
@@ -290,7 +288,7 @@ def create_app():
             f = r['folder']
             online = (f in running_procs and running_procs[f].poll() is None) or (r['pid'] and psutil.pid_exists(r['pid']))
             servers.append({'id': r['id'], 'name': r['name'], 'folder': f, 'online': online, 'status': r['server_status']})
-        return render_template('admin_manage_user.html', user=user, servers=servers)
+        return render_template('web/admin_manage_user.html', user=user, servers=servers)
 
     @app.route('/admin/suspend-server/<int:sid>', methods=['POST'])
     def admin_suspend_server(sid):
@@ -350,7 +348,7 @@ def create_app():
     @app.route('/admin/files/<folder>')
     def admin_browse_files(folder):
         if not session.get('admin_logged'): return redirect(url_for('admin_login'))
-        return render_template('dashboard.html', user={'fname': 'Admin'}, is_admin_view=True, admin_folder=folder)
+        return render_template('web/dashboard.html', user={'fname': 'Admin'}, is_admin_view=True, admin_folder=folder)
 
     @app.route('/files/list/<folder>')
     def flist(folder):
@@ -459,12 +457,15 @@ def create_app():
         d = request.json
         zip_name = d.get('name')
         sub_path = d.get('path', '')
+        
+        # Path safety calculation
         base = os.path.join(app.config['BASE_STORAGE'], folder, sub_path)
         zip_path = os.path.join(base, zip_name)
         
         if os.path.exists(zip_path) and zipfile.is_zipfile(zip_path):
             try:
                 with zipfile.ZipFile(zip_path, 'r') as z:
+                    # Extracts exactly into the current directory
                     z.extractall(base)
                 return jsonify({'status': 'success'})
             except Exception as e:
@@ -503,11 +504,28 @@ def create_app():
                     t_pid = running_procs[folder].pid if folder in running_procs else old_pid
                     os.killpg(os.getpgid(t_pid), signal.SIGKILL)
                 except: pass
+            if folder in running_procs: del running_procs[folder]
+
             srv = db.execute('SELECT startup FROM servers WHERE folder=?', (folder,)).fetchone()
             startup_file = srv['startup'] if srv and srv['startup'] else 'main.py'
+            
             f_log = open(log_file_path, 'a')
-            f_log.write(f"\n[{now}] 🚀 Instance {act.upper()}ED Successfully\n")
-            proc = subprocess.Popen(['python3', startup_file], cwd=path, stdout=f_log, stderr=f_log, preexec_fn=os.setsid)
+            
+            # requirements.txt check
+            req_path = os.path.join(path, 'requirements.txt')
+            if os.path.exists(req_path):
+                f_log.write(f"\n[{now}] 📦 Installing packages from requirements.txt...\n")
+                f_log.flush()
+                # Combined command: install then run
+                full_cmd = f"pip install -r requirements.txt && python3 {startup_file}"
+            else:
+                f_log.write(f"\n[{now}] 🚀 Instance {act.upper()}ED Successfully\n")
+                f_log.flush()
+                full_cmd = f"python3 {startup_file}"
+
+            # Start the process with shell=True for chaining commands
+            proc = subprocess.Popen(full_cmd, shell=True, cwd=path, stdout=f_log, stderr=f_log, preexec_fn=os.setsid)
+            
             running_procs[folder], start_times[folder] = proc, time.time()
             db.execute('UPDATE servers SET pid=? WHERE folder=?', (proc.pid, folder))
             db.commit()
@@ -611,6 +629,13 @@ def create_app():
 
 app = create_app()
 
-if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
+if __name__ == '__main__':
+    # ডাটাবেজ ইনিশিয়ালের ফাংশন কল (যদি কোডে থাকে)
+    try:
+        init_db()
+    except Exception as e:
+        print("DB Init Error:", e)
+        
+    port = int(os.environ.get('PORT', 5000))
+    # SocketIO অথবা Flask অ্যাপ রান করা
     socketio.run(app, host='0.0.0.0', port=port)
